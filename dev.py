@@ -127,16 +127,16 @@ def new_get_dev_risk(weight, error, class_num): #这里建议weight和error按�
 
 def random_select_src(source_feature, target_feature):
     """
-    select at most 2*Ntr data from source feature
+    Select at most 2*Ntr data from source feature randomly
     :param source_feature: shape [N_tr, d], features from training set
     :param target_feature: shape [N_te, d], features from test set
     :return:
     """
     N_s, d = source_feature.shape
     N_t, _d = target_feature.shape
-    items = [i for i in range(N_s)]
-    random_list = random.sample(items, 2 * N_t)
+    items = [i for i in range(1, N_s)]
+    random_list = random.sample(items, 2 * N_t - 1)
     new_source_feature = source_feature[0].reshape(1, d)
-    for i in range(2 * N_t - 1):
-        new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i + 1]].reshape(1, d)))
+    for i in range(2 * N_t):
+        new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i]].reshape(1, d)))
     return new_source_feature
