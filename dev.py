@@ -135,8 +135,8 @@ def random_select_src(source_feature, target_feature):
     N_s, d = source_feature.shape
     N_t, _d = target_feature.shape
     items = [i for i in range(N_s)]
-    random_list = random.sample(items, 2*N_t)
+    random_list = random.sample(items, 2 * N_t)
     new_source_feature = source_feature[0].reshape(1, d)
-    for i in range(2*N_t - 1):
+    for i in range(2 * N_t - 1):
         new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i + 1]].reshape(1, d)))
     return new_source_feature
