@@ -1,10 +1,12 @@
 import random
+import torch
 import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
 import torch.utils.data as util_data
 from data_list import ImageList
 import pre_process as prep
+import torch.nn as nn
 
 def get_dev_risk(weight, error):
     """
@@ -15,7 +17,7 @@ def get_dev_risk(weight, error):
     N, d = weight.shape
     _N, _d = error.shape
     assert N == _N and d == _d, 'dimension mismatch!'
-    weighted_error = weight * error # weight correspond to Ntr/Nts, error correspond to (1-M(fv))/M(fv)
+    weighted_error = weight * error # weight correspond to Ntr/Nts, error correspond to validation error
     cov = np.cov(np.concatenate((weighted_error, weight), axis=1),rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
     eta = - cov / var_w
@@ -140,15 +142,17 @@ def random_select_src(source_feature, target_feature):
         new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i]].reshape(1, d)))
     return new_source_feature
 
-def predict_loss(y, y_pre): #requires how the loss is calculated for the preduct value and the ground truth value
+def predict_loss(cls, y_pre): #requires how the loss is calculated for the preduct value and the ground truth value
     """
-
+    Calculate the corss entropy loss for prediction of one picture
     :param y:
     :param y_pre:
     :return:
     """
-    return abs(y - y_pre)
-
+    cls_torch = np.full(1, cls)
+    pre_cls_torch = torch.from_numpy(y_pre.astype(float))
+    entropy = nn.CrossEntropyLoss()
+    return entropy(pre_cls_torch, cls)
 # def val_split(validation_path):
 #     """
 #     return the validation data and the ground truth value of the validation data
@@ -162,6 +166,19 @@ def predict_loss(y, y_pre): #requires how the loss is calculated for the preduct
 #         ground_truth[i] = int(validation_path[i].split(" ")[1].replace("\n", ""))
 
 def cross_validation_loss(feature_network, predict_network, source_path, target_path, val_path, class_num, resize_size, crop_size, batch_size):
+    """
+    Main function to calculate CV loss
+    :param feature_network:
+    :param predict_network:
+    :param source_path: 
+    :param target_path:
+    :param val_path:
+    :param class_num:
+    :param resize_size:
+    :param crop_size:
+    :param batch_size:
+    :return:
+    """
     source_list = open(source_path).readlines()
     target_list = open(target_path).readlines()
     validation_list = open(val_path).readlines()
@@ -186,6 +203,7 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
         dsets_val = ImageList(val_cls_list[cls], transform=prep_dict_val)
         dset_loaders_val = util_data.DataLoader(dsets_val, batch_size=batch_size, shuffle=True, num_workers=4)
 
+        # prepare source feature
         iter_src = iter(dset_loaders_src)
         src_input, src_labels = iter_src.next()
         src_feature = feature_network(src_input)
@@ -193,6 +211,7 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
             src_input, src_labels = iter_src.next()
             src_feature = np.append(src_feature, feature_network(src_input), axis=0)
 
+        # prepare target feature
         iter_tar = iter(dset_loaders_tar)
         tar_input, tar_labels = iter_tar.next()
         tar_feature = feature_network(tar_input)
@@ -200,16 +219,20 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
             tar_input, tar_labels = iter_tar.next()
             tar_feature = np.append(tar_feature, feature_network(tar_input), axis=0)
 
+        # prepare validation feature and predicted label for validation
         iter_val = iter(dset_loaders_val)
         val_input, val_labels = feature_network(src_input)
         val_feature = feature_network(val_input)
-        pre_label = predict_network(val_input)
+        pred_label = predict_network(val_input)
+        w, h = pre_label.shape
+        error = np.zeors(1)
+        error[0] = predict_loss(cls, pre_label.reshape(1, w*h)).numpy()
+        error = error.reshape(1,1)
         for count_val in range(len(val_cls_list[cls]) - 1):
             val_input, val_labels = iter_val.next()
             val_feature = np.append(val_feature, feature_network(val_input), axis=0)
-            pre_label = np.append(pre_label, predict_network(val_input))
-        true_label = np.full((pre_label.size, 1), cls)
-        error = predict_loss(true_label, pre_label)
+            error = np.append(error, [[predict_loss(cls, predict_network(val_input)).numpy()]], axis=0)
+
         weight = get_weight(src_feature, tar_feature, val_feature)
         cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
     return cross_val_loss
