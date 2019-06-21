@@ -37,6 +37,9 @@ def get_weight(source_feature, target_feature, validation_feature): # 这三个f
         source_feature = random_select_src(source_feature, target_feature)
     else:
         source_feature = source_feature.copy()
+
+    print('num_source is {}, num_target is {}, ratio is {}\n'.format(N_s, N_t, float(N_s) / N_t)) #check the ratio
+
     target_feature = target_feature.copy()
     all_feature = np.concatenate((source_feature, target_feature))
     all_label = np.asarray([1] * N_s + [0] * N_t,dtype=np.int32) # 1->source 0->target
@@ -164,13 +167,49 @@ def predict_loss(cls, y_pre): #requires how the loss is calculated for the predu
 #     ground_truth = np.zeros(shape=(N))
 #     for i in range(N):
 #         ground_truth[i] = int(validation_path[i].split(" ")[1].replace("\n", ""))
+def get_label(predict_score):
+    """
+    Return the predicted label by returning the index with highest score in the predict scroe list
+    :param predict_score: a list with length C (C is the number of class) containing the possibility score for each class
+    :return:
+    """
+    score = predict_score[0]
+    index = 0
+    for i in len(1, predict_score):
+        if score < predict_score[i]:
+            score = predict_score[i]
+            index = i
+    return index
+
+def target_label_list(target_list, predict_network, resize_size, crop_size, batch_size):
+    """
+    Return the target list with pesudolabel
+    :param target_list: list conatinging all target file path and a wrong label
+    :param predict_network: network to perdict label for target image
+    :param resize_size:
+    :param crop_size:
+    :param batch_size:
+    :return:
+    """
+    label_list = []
+    dsets_tar = ImageList(target_list, transform=prep.image_train(resize_size=resize_size, crop_size=crop_size))
+    dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=True, num_workers=4)
+    len_train_target = len(dset_loaders_tar)
+    iter_target = iter(dset_loaders_tar)
+    for i in range(len_train_target):
+        input_tar, label_tar = iter_target.next()
+        predict_score = predict_network(input_tar)
+        label = get_label(predict_score)
+        label_list.append(target_list[i][:-2])
+        label_list[i] = label_list[i] + str(label) + "\n"
+    return label_list
 
 def cross_validation_loss(feature_network, predict_network, source_path, target_path, val_path, class_num, resize_size, crop_size, batch_size):
     """
     Main function to calculate CV loss
     :param feature_network:
     :param predict_network:
-    :param source_path: 
+    :param source_path:
     :param target_path:
     :param val_path:
     :param class_num:
@@ -180,12 +219,16 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
     :return:
     """
     source_list = open(source_path).readlines()
-    target_list = open(target_path).readlines()
+    target_list_no_label = open(target_path).readlines()
     validation_list = open(val_path).readlines()
     src_cls_list = []
     tar_cls_list = []
     val_cls_list = []
     cross_val_loss = 0
+
+    # add pesudolabel for target data
+    target_list = target_label_list(target_list_no_label)
+
     # seperate the class
     for i in range(class_num):
         src_cls_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
@@ -206,33 +249,43 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
         # prepare source feature
         iter_src = iter(dset_loaders_src)
         src_input, src_labels = iter_src.next()
-        src_feature = feature_network(src_input)
+        # src_feature = feature_network(src_input)
+        src_feature, _ = feature_network(src_input)
         for count_src in range(len(src_cls_list[cls]) - 1):
             src_input, src_labels = iter_src.next()
-            src_feature = np.append(src_feature, feature_network(src_input), axis=0)
+            # src_feature = feature_network(src_input)
+            src_feature_new, _ = feature_network(src_input)
+            src_feature = np.append(src_feature, src_feature_new, axis=0)
 
         # prepare target feature
         iter_tar = iter(dset_loaders_tar)
         tar_input, tar_labels = iter_tar.next()
-        tar_feature = feature_network(tar_input)
+        # tar_feature = feature_network(tar_input)
+        tar_feature, _ = feature_network(tar_input)
         for count_tar in range(len(tar_cls_list[cls]) - 1):
             tar_input, tar_labels = iter_tar.next()
-            tar_feature = np.append(tar_feature, feature_network(tar_input), axis=0)
+            # tar_feature_new = feature_network(tar_input)
+            tar_feature_new, _ = feature_network(tar_input)
+            tar_feature = np.append(tar_feature, tar_feature_new, axis=0)
 
         # prepare validation feature and predicted label for validation
         iter_val = iter(dset_loaders_val)
-        val_input, val_labels = feature_network(src_input)
-        val_feature = feature_network(val_input)
+        val_input, val_labels = iter_val.next()
+        # val_feature = feature_network(val_input)
+        val_feature, _ = feature_network(val_input)
         pred_label = predict_network(val_input)
-        w, h = pre_label.shape
+        w, h = pred_label.shape
         error = np.zeors(1)
-        error[0] = predict_loss(cls, pre_label.reshape(1, w*h)).numpy()
+        error[0] = predict_loss(cls, pred_label.reshape(1, w*h)).numpy()
         error = error.reshape(1,1)
         for count_val in range(len(val_cls_list[cls]) - 1):
             val_input, val_labels = iter_val.next()
-            val_feature = np.append(val_feature, feature_network(val_input), axis=0)
+            # val_feature1 = feature_network(val_input)
+            val_feature_new, _ = feature_network(val_input)
+            val_feature = np.append(val_feature, val_feature_new, axis=0)
             error = np.append(error, [[predict_loss(cls, predict_network(val_input)).numpy()]], axis=0)
 
+        print('The class is {}\n'.format(cls))
         weight = get_weight(src_feature, tar_feature, val_feature)
         cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
     return cross_val_loss
