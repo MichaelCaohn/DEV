@@ -1,5 +1,6 @@
 import random
 import torch
+import math
 import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import train_test_split
@@ -22,7 +23,6 @@ def get_dev_risk(weight, error):
     var_w = np.var(weight, ddof=1)
     eta = - cov / var_w
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
-
 
 def get_weight(source_feature, target_feature, validation_feature): # 这三个feature根据类别不同，是不一样的. source与target这里需注意一下数据量threshold 2倍的事儿
     """
@@ -147,7 +147,7 @@ def random_select_src(source_feature, target_feature):
 
 def predict_loss(cls, y_pre): #requires how the loss is calculated for the preduct value and the ground truth value
     """
-    Calculate the corss entropy loss for prediction of one picture
+    Calculate the cross entropy loss for prediction of one picture
     :param y:
     :param y_pre:
     :return:
@@ -155,7 +155,7 @@ def predict_loss(cls, y_pre): #requires how the loss is calculated for the predu
     cls_torch = np.full(1, cls)
     pre_cls_torch = torch.from_numpy(y_pre.astype(float))
     entropy = nn.CrossEntropyLoss()
-    return entropy(pre_cls_torch, cls)
+    return entropy(pre_cls_torch, cls_torch)
 # def val_split(validation_path):
 #     """
 #     return the validation data and the ground truth value of the validation data
@@ -181,7 +181,7 @@ def get_label(predict_score):
             index = i
     return index
 
-def target_label_list(target_list, predict_network, resize_size, crop_size, batch_size):
+def get_label_list(target_list, predict_network, resize_size, crop_size, batch_size):
     """
     Return the target list with pesudolabel
     :param target_list: list conatinging all target file path and a wrong label
@@ -204,7 +204,30 @@ def target_label_list(target_list, predict_network, resize_size, crop_size, batc
         label_list[i] = label_list[i] + str(label) + "\n"
     return label_list
 
-def cross_validation_loss(feature_network, predict_network, source_path, target_path, val_path, class_num, resize_size, crop_size, batch_size):
+def split_set(source_path, class_num, split = 0.2):
+    """
+    Split the source list into a list of list of source and a list of list of validation
+    :param source_path:
+    :param class_num:
+    :param split:
+    :return:
+    """
+    source_list = open(source_path).readlines()
+    src_list = []
+    val_list = []
+    for i in range(class_num):
+        src_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
+    for j in range(len(src_list)):
+        val = []
+        source_len = len(src_list[j])
+        val_len = math.ceil(source_len * split)
+        for k in range(val_len):
+            val.append(src_list[i][-1])
+            src_list[i].remove(src_list[i][-1])
+        val_list.append(val_len)
+    return src_list, val_list
+
+def cross_validation_loss(feature_network, predict_network, ori_source_list, target_path, class_num, resize_size, crop_size, batch_size):
     """
     Main function to calculate CV loss
     :param feature_network:
@@ -218,22 +241,23 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
     :param batch_size:
     :return:
     """
-    source_list = open(source_path).readlines()
+    src_cls_list, val_cls_list = split_set(ori_source_list, class_num)
+    # source_list = open(source_path).readlines()
     target_list_no_label = open(target_path).readlines()
-    validation_list = open(val_path).readlines()
-    src_cls_list = []
+    # validation_list = open(val_path).readlines()
+    # src_cls_list = []
     tar_cls_list = []
-    val_cls_list = []
+    # val_cls_list = []
     cross_val_loss = 0
 
     # add pesudolabel for target data
-    target_list = target_label_list(target_list_no_label)
+    target_list = get_label_list(target_list_no_label)
 
     # seperate the class
     for i in range(class_num):
-        src_cls_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
+        # src_cls_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
         tar_cls_list.append([j for j in target_list if int(j.split(" ")[1].replace("\n", "")) == i])
-        val_cls_list.append([j for j in validation_list if int(j.split(" ")[1].replace("\n", "")) == i])
+        # val_cls_list.append([j for j in validation_list if int(j.split(" ")[1].replace("\n", "")) == i])
     prep_dict_val = prep_dict_source = prep_dict_target = prep.image_train(resize_size=resize_size, crop_size=crop_size)
     # load different class's image
     for cls in range(class_num):
@@ -273,7 +297,7 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
         val_input, val_labels = iter_val.next()
         # val_feature = feature_network(val_input)
         val_feature, _ = feature_network(val_input)
-        pred_label = predict_network(val_input)
+        pred_label = predict_network(val_input)[1]
         w, h = pred_label.shape
         error = np.zeors(1)
         error[0] = predict_loss(cls, pred_label.reshape(1, w*h)).numpy()
@@ -283,9 +307,9 @@ def cross_validation_loss(feature_network, predict_network, source_path, target_
             # val_feature1 = feature_network(val_input)
             val_feature_new, _ = feature_network(val_input)
             val_feature = np.append(val_feature, val_feature_new, axis=0)
-            error = np.append(error, [[predict_loss(cls, predict_network(val_input)).numpy()]], axis=0)
+            error = np.append(error, [[predict_loss(cls, predict_network(val_input)[1]).numpy()]], axis=0)
 
         print('The class is {}\n'.format(cls))
         weight = get_weight(src_feature, tar_feature, val_feature)
         cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
-    return cross_val_loss
+    return cross_val_loss/class_num
