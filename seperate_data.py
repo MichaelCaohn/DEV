@@ -18,9 +18,14 @@ def split_set(source_path, class_num, split = 0.4):
         source_len = len(src_list[j])
         val_len = math.ceil(source_len * split)
         for k in range(val_len):
-            val.append(src_list[i][-1])
-            src_list[i].remove(src_list[i][-1])
-        val_list.append(val_len)
+            val.append(src_list[j][-1])
+            src_list[j].remove(src_list[j][-1])
+        val_list.append(val)
     return src_list, val_list
 
-def dimension_red(src_list):
+def dimension_rd(src_list):
+    target = []
+    for i in range(len(src_list)):
+        for j in src_list[i]:
+            target.append(j)
+    return target
