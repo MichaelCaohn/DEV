@@ -167,19 +167,19 @@ def predict_loss(cls, y_pre): #requires how the loss is calculated for the predu
 #     ground_truth = np.zeros(shape=(N))
 #     for i in range(N):
 #         ground_truth[i] = int(validation_path[i].split(" ")[1].replace("\n", ""))
-def get_label(predict_score):
-    """
-    Return the predicted label by returning the index with highest score in the predict scroe list
-    :param predict_score: a list with length C (C is the number of class) containing the possibility score for each class
-    :return:
-    """
-    score = predict_score[0]
-    index = 0
-    for i in len(1, predict_score):
-        if score < predict_score[i]:
-            score = predict_score[i]
-            index = i
-    return index
+# def get_label(predict_score):
+# #     """
+# #     Return the predicted label by returning the index with highest score in the predict scroe list
+# #     :param predict_score: a list with length C (C is the number of class) containing the possibility score for each class
+# #     :return:
+# #     """
+# #     score = predict_score[0]
+# #     index = 0
+# #     for i in len(1, predict_score):
+# #         if score < predict_score[i]:
+# #             score = predict_score[i]
+# #             index = i
+# #     return index
 
 def get_label_list(target_list, predict_network, resize_size, crop_size, batch_size):
     """
@@ -198,13 +198,13 @@ def get_label_list(target_list, predict_network, resize_size, crop_size, batch_s
     iter_target = iter(dset_loaders_tar)
     for i in range(len_train_target):
         input_tar, label_tar = iter_target.next()
-        predict_score = predict_network(input_tar)
-        label = get_label(predict_score)
+        predict_score = predict_network(input_tar)[1]
+        label = np.argsort(-predict_score)[0]
         label_list.append(target_list[i][:-2])
         label_list[i] = label_list[i] + str(label) + "\n"
     return label_list
 
-def split_set(source_path, class_num, split = 0.2):
+def split_set(source_path, class_num, split = 0.4):
     """
     Split the source list into a list of list of source and a list of list of validation
     :param source_path:
@@ -227,21 +227,21 @@ def split_set(source_path, class_num, split = 0.2):
         val_list.append(val_len)
     return src_list, val_list
 
-def cross_validation_loss(feature_network, predict_network, ori_source_list, target_path, class_num, resize_size, crop_size, batch_size):
+def cross_validation_loss(feature_network, predict_network, src_cls_list, target_path, val_cls_list, class_num, resize_size, crop_size, batch_size):
     """
-    Main function to calculate CV loss
+    Main function for computing the CV loss
     :param feature_network:
     :param predict_network:
-    :param source_path:
+    :param src_cls_list:
     :param target_path:
-    :param val_path:
+    :param val_cls_list:
     :param class_num:
     :param resize_size:
     :param crop_size:
     :param batch_size:
     :return:
     """
-    src_cls_list, val_cls_list = split_set(ori_source_list, class_num)
+    # src_cls_list, val_cls_list = split_set(ori_source_list, class_num)
     # source_list = open(source_path).readlines()
     target_list_no_label = open(target_path).readlines()
     # validation_list = open(val_path).readlines()
