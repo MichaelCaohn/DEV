@@ -8,6 +8,8 @@ import torch.utils.data as util_data
 from data_list import ImageList
 import pre_process as prep
 import torch.nn as nn
+from torch.autograd import Variable
+
 
 def get_dev_risk(weight, error):
     """
@@ -18,59 +20,63 @@ def get_dev_risk(weight, error):
     N, d = weight.shape
     _N, _d = error.shape
     assert N == _N and d == _d, 'dimension mismatch!'
-    weighted_error = weight * error # weight correspond to Ntr/Nts, error correspond to validation error
-    cov = np.cov(np.concatenate((weighted_error, weight), axis=1),rowvar=False)[0][1]
+    weighted_error = weight * error  # weight correspond to Ntr/Nts, error correspond to validation error
+    cov = np.cov(np.concatenate((weighted_error, weight), axis=1), rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
     eta = - cov / var_w
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
 
-def get_weight(source_feature, target_feature, validation_feature): # 这三个feature根据类别不同，是不一样的. source与target这里需注意一下数据量threshold 2倍的事儿
+
+def get_weight(source_feature, target_feature,
+               validation_feature):  # 这三个feature根据类别不同，是不一样的. source与target这里需注意一下数据量threshold 2倍的事儿
     """
     :param source_feature: shape [N_tr, d], features from training set
     :param target_feature: shape [N_te, d], features from test set
     :param validation_feature: shape [N_v, d], features from validation set
     :return:
     """
-    N_s, d = source_feature.shape  
+    N_s, d = source_feature.shape
     N_t, _d = target_feature.shape
-    if float(N_s)/N_t > 2:
+    if float(N_s) / N_t > 2:
         source_feature = random_select_src(source_feature, target_feature)
     else:
         source_feature = source_feature.copy()
 
-    print('num_source is {}, num_target is {}, ratio is {}\n'.format(N_s, N_t, float(N_s) / N_t)) #check the ratio
+    print('num_source is {}, num_target is {}, ratio is {}\n'.format(N_s, N_t, float(N_s) / N_t))  # check the ratio
 
     target_feature = target_feature.copy()
     all_feature = np.concatenate((source_feature, target_feature))
-    all_label = np.asarray([1] * N_s + [0] * N_t,dtype=np.int32) # 1->source 0->target
-    feature_for_train,feature_for_test, label_for_train,label_for_test = train_test_split(all_feature, all_label, train_size = 0.8)
+    all_label = np.asarray([1] * N_s + [0] * N_t, dtype=np.int32)  # 1->source 0->target
+    feature_for_train, feature_for_test, label_for_train, label_for_test = train_test_split(all_feature, all_label,
+                                                                                            train_size=0.8)
 
     # here is train, test split, concatenating the data from source and target
 
     decays = [1e-1, 3e-2, 1e-2, 3e-3, 1e-3, 3e-4, 1e-4, 3e-5, 1e-5]
     val_acc = []
     domain_classifiers = []
-    
+
     for decay in decays:
-        domain_classifier = MLPClassifier(hidden_layer_sizes=(d, d, 2),activation='relu',alpha=decay)
+        domain_classifier = MLPClassifier(hidden_layer_sizes=(d, d, 2), activation='relu', alpha=decay)
         domain_classifier.fit(feature_for_train, label_for_train)
         output = domain_classifier.predict(feature_for_test)
         acc = np.mean((label_for_test == output).astype(np.float32))
         val_acc.append(acc)
         domain_classifiers.append(domain_classifier)
-        print('decay is %s, val acc is %s'%(decay, acc))
-        
+        print('decay is %s, val acc is %s' % (decay, acc))
+
     index = val_acc.index(max(val_acc))
-    
+
     print('val acc is')
     print(val_acc)
 
     domain_classifier = domain_classifiers[index]
 
     domain_out = domain_classifier.predict_proba(validation_feature)
-    return domain_out[:,:1] / domain_out[:,1:] * N_s * 1.0 / N_t #(Ntr/Nts)*(1-M(fv))/M(fv)
+    return domain_out[:, :1] / domain_out[:, 1:] * N_s * 1.0 / N_t  # (Ntr/Nts)*(1-M(fv))/M(fv)
 
     # correspond to (Ntr/Nts)*(1-M(fv))/M(fv), M(fv) just indicate whether 0 or 1, meaning from source or target
+
 
 # added function
 
@@ -145,10 +151,11 @@ def random_select_src(source_feature, target_feature):
         new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i]].reshape(1, d)))
     return new_source_feature
 
-def predict_loss(cls, y_pre): #requires how the loss is calculated for the preduct value and the ground truth value
+
+def predict_loss(cls, y_pre):  # requires how the loss is calculated for the preduct value and the ground truth value
     """
     Calculate the cross entropy loss for prediction of one picture
-    :param y:
+    :param cls:
     :param y_pre:
     :return:
     """
@@ -156,6 +163,8 @@ def predict_loss(cls, y_pre): #requires how the loss is calculated for the predu
     pre_cls_torch = torch.from_numpy(y_pre.astype(float))
     entropy = nn.CrossEntropyLoss()
     return entropy(pre_cls_torch, cls_torch)
+
+
 # def val_split(validation_path):
 #     """
 #     return the validation data and the ground truth value of the validation data
@@ -181,7 +190,8 @@ def predict_loss(cls, y_pre): #requires how the loss is calculated for the predu
 # #             index = i
 # #     return index
 
-def get_label_list(target_list, predict_network, resize_size, crop_size, batch_size):
+def get_label_list(target_list, predict_network, resize_size, crop_size, batch_size, use_gpu):
+    # done with debugging, works fine
     """
     Return the target list with pesudolabel
     :param target_list: list conatinging all target file path and a wrong label
@@ -196,38 +206,24 @@ def get_label_list(target_list, predict_network, resize_size, crop_size, batch_s
     dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=True, num_workers=4)
     len_train_target = len(dset_loaders_tar)
     iter_target = iter(dset_loaders_tar)
+    count = 0
     for i in range(len_train_target):
         input_tar, label_tar = iter_target.next()
-        predict_score = predict_network(input_tar)[1]
-        label = np.argsort(-predict_score)[0]
-        label_list.append(target_list[i][:-2])
-        label_list[i] = label_list[i] + str(label) + "\n"
+        if use_gpu:
+            input_tar, label_tar = Variable(input_tar).cuda(), Variable(label_tar).cuda()
+        else:
+            input_tar, label_tar = Variable(input_tar), Variable(label_tar)
+        _, predict_score = predict_network(input_tar)
+        _, predict_label = torch.max(predict_score, 1)
+        for num in range(len(predict_label.cpu())):
+            label_list.append(target_list[count][:-2])
+            label_list[count] = label_list[count] + str(predict_label[num].cpu().numpy()) + "\n"
+            count += 1
     return label_list
 
-def split_set(source_path, class_num, split = 0.4):
-    """
-    Split the source list into a list of list of source and a list of list of validation
-    :param source_path:
-    :param class_num:
-    :param split:
-    :return:
-    """
-    source_list = open(source_path).readlines()
-    src_list = []
-    val_list = []
-    for i in range(class_num):
-        src_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
-    for j in range(len(src_list)):
-        val = []
-        source_len = len(src_list[j])
-        val_len = math.ceil(source_len * split)
-        for k in range(val_len):
-            val.append(src_list[i][-1])
-            src_list[i].remove(src_list[i][-1])
-        val_list.append(val_len)
-    return src_list, val_list
 
-def cross_validation_loss(feature_network, predict_network, src_cls_list, target_path, val_cls_list, class_num, resize_size, crop_size, batch_size):
+def cross_validation_loss(feature_network, predict_network, src_cls_list, target_path, val_cls_list, class_num,
+                          resize_size, crop_size, batch_size, use_gpu):
     """
     Main function for computing the CV loss
     :param feature_network:
@@ -241,23 +237,16 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
     :param batch_size:
     :return:
     """
-    # src_cls_list, val_cls_list = split_set(ori_source_list, class_num)
-    # source_list = open(source_path).readlines()
     target_list_no_label = open(target_path).readlines()
-    # validation_list = open(val_path).readlines()
-    # src_cls_list = []
     tar_cls_list = []
-    # val_cls_list = []
     cross_val_loss = 0
 
     # add pesudolabel for target data
-    target_list = get_label_list(target_list_no_label)
+    target_list = get_label_list(target_list_no_label, predict_network, resize_size, crop_size, batch_size, use_gpu)
 
     # seperate the class
     for i in range(class_num):
-        # src_cls_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
         tar_cls_list.append([j for j in target_list if int(j.split(" ")[1].replace("\n", "")) == i])
-        # val_cls_list.append([j for j in validation_list if int(j.split(" ")[1].replace("\n", "")) == i])
     prep_dict_val = prep_dict_source = prep_dict_target = prep.image_train(resize_size=resize_size, crop_size=crop_size)
     # load different class's image
     for cls in range(class_num):
@@ -273,6 +262,11 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         # prepare source feature
         iter_src = iter(dset_loaders_src)
         src_input, src_labels = iter_src.next()
+        if use_gpu:
+            src_tar, src_labels = Variable(src_tar).cuda(), Variable(src_labels).cuda()
+        else:
+            src_tar, src_labels = Variable(src_tar), Variable(src_labels)
+
         # src_feature = feature_network(src_input)
         src_feature, _ = feature_network(src_input)
         for count_src in range(len(src_cls_list[cls]) - 1):
@@ -300,8 +294,8 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         pred_label = predict_network(val_input)[1]
         w, h = pred_label.shape
         error = np.zeors(1)
-        error[0] = predict_loss(cls, pred_label.reshape(1, w*h)).numpy()
-        error = error.reshape(1,1)
+        error[0] = predict_loss(cls, pred_label.reshape(1, w * h)).numpy()
+        error = error.reshape(1, 1)
         for count_val in range(len(val_cls_list[cls]) - 1):
             val_input, val_labels = iter_val.next()
             # val_feature1 = feature_network(val_input)
@@ -312,4 +306,4 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         print('The class is {}\n'.format(cls))
         weight = get_weight(src_feature, tar_feature, val_feature)
         cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
-    return cross_val_loss/class_num
+    return cross_val_loss / class_num
