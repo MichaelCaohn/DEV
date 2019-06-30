@@ -263,10 +263,9 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         iter_src = iter(dset_loaders_src)
         src_input, src_labels = iter_src.next()
         if use_gpu:
-            src_tar, src_labels = Variable(src_tar).cuda(), Variable(src_labels).cuda()
+            src_input, src_labels = Variable(src_input).cuda(), Variable(src_labels).cuda()
         else:
-            src_tar, src_labels = Variable(src_tar), Variable(src_labels)
-
+            src_input, src_labels = Variable(src_input), Variable(src_labels)
         # src_feature = feature_network(src_input)
         src_feature, _ = feature_network(src_input)
         for count_src in range(len(src_cls_list[cls]) - 1):
@@ -278,6 +277,10 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         # prepare target feature
         iter_tar = iter(dset_loaders_tar)
         tar_input, tar_labels = iter_tar.next()
+        if use_gpu:
+            tar_input, tar_labels = Variable(tar_input).cuda(), Variable(tar_labels).cuda()
+        else:
+            tar_input, tar_labels = Variable(tar_input), Variable(tar_labels)
         # tar_feature = feature_network(tar_input)
         tar_feature, _ = feature_network(tar_input)
         for count_tar in range(len(tar_cls_list[cls]) - 1):
@@ -289,9 +292,12 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         # prepare validation feature and predicted label for validation
         iter_val = iter(dset_loaders_val)
         val_input, val_labels = iter_val.next()
-        # val_feature = feature_network(val_input)
+        if use_gpu:
+            val_input, val_labels = Variable(val_input).cuda(), Variable(val_labels).cuda()
+        else:
+            val_input, val_labels = Variable(val_input), Variable(val_labels)
         val_feature, _ = feature_network(val_input)
-        pred_label = predict_network(val_input)[1]
+        _, pred_label = predict_network(val_input)
         w, h = pred_label.shape
         error = np.zeors(1)
         error[0] = predict_loss(cls, pred_label.reshape(1, w * h)).numpy()

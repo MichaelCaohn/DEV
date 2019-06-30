@@ -8,6 +8,7 @@ import torch.utils.data as util_data
 from data_list import ImageList
 import pre_process as prep
 import torch.nn as nn
+from torch.autograd import Variable
 
 def get_dev_risk(weight, error):
     """
@@ -107,7 +108,7 @@ def split_set(source_path, class_num, split = 0.4):
         val_list.append(val_len)
     return src_list, val_list
 
-def cross_validation_loss(feature_network, predict_network, src_list, target_path,val_list, resize_size, crop_size, batch_size):
+def cross_validation_loss(feature_network, predict_network, src_list, target_path, val_list, resize_size, crop_size, batch_size, use_gpu):
     """
     Main function for computing the CV loss
     :param feature_network:
@@ -123,6 +124,7 @@ def cross_validation_loss(feature_network, predict_network, src_list, target_pat
     """
 
     tar_list = open(target_path).readlines()
+    cross_val_loss = 0
 
     prep_dict_val = prep_dict_source = prep_dict_target = prep.image_train(resize_size=resize_size, crop_size=crop_size)
     # load different class's image
@@ -139,6 +141,10 @@ def cross_validation_loss(feature_network, predict_network, src_list, target_pat
     # prepare source feature
     iter_src = iter(dset_loaders_src)
     src_input, src_labels = iter_src.next()
+    if use_gpu:
+        src_input, src_labels = Variable(src_input).cuda(), Variable(src_labels).cuda()
+    else:
+        src_input, src_labels = Variable(src_input), Variable(src_labels)
     src_feature, _ = feature_network(src_input)
     for _ in range(len(src_list) - 1):
         src_input, src_labels = iter_src.next()
@@ -147,7 +153,11 @@ def cross_validation_loss(feature_network, predict_network, src_list, target_pat
 
     # prepare target feature
     iter_tar = iter(dset_loaders_tar)
-    tar_input, _= iter_tar.next()
+    tar_input, _ = iter_tar.next()
+    if use_gpu:
+        tar_input, _ = Variable(tar_input).cuda(), Variable(_).cuda()
+    else:
+        src_input, _ = Variable(tar_input), Variable(_)
     tar_feature, _ = feature_network(tar_input)
     for _ in range(len(tar_list) - 1):
         tar_input, _ = iter_tar.next()
@@ -157,6 +167,10 @@ def cross_validation_loss(feature_network, predict_network, src_list, target_pat
     # prepare validation feature and predicted label for validation
     iter_val = iter(dset_loaders_val)
     val_input, val_labels = iter_val.next()
+    if use_gpu:
+        val_input, val_labels = Variable(val_input).cuda(), Variable(val_labels).cuda()
+    else:
+        val_input, val_labels = Variable(val_input), Variable(val_labels)
     val_feature, _ = feature_network(val_input)
     pred_label = predict_network(val_input)[1]
     w, h = pred_label.shape

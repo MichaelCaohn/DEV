@@ -8,7 +8,7 @@ import torch.utils.data as util_data
 from data_list import ImageList
 import pre_process as prep
 import torch.nn as nn
-
+from torch.autograd import Variable
 
 
 
@@ -48,7 +48,7 @@ def split_set(source_path, class_num, split = 0.4):
         val_list.append(val_len)
     return src_list, val_list
 
-def cross_validation_loss(feature_network, predict_network, src_cls_list, target_path, val_cls_list, class_num, resize_size, crop_size, batch_size):
+def cross_validation_loss(feature_network, predict_network, src_cls_list, target_path, val_cls_list, class_num, resize_size, crop_size, batch_size, use_gpu):
     """
     Main function for computing the CV loss
     :param feature_network:
@@ -65,18 +65,22 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
 
     cross_val_loss = 0
 
-    prep_dict_val = prep_dict_source = prep_dict_target = prep.image_train(resize_size=resize_size, crop_size=crop_size)
+    prep_dict_val = prep.image_train(resize_size=resize_size, crop_size=crop_size)
     # load different class's image
     for cls in range(class_num):
 
         dsets_val = ImageList(val_cls_list[cls], transform=prep_dict_val)
-        dset_loaders_val = util_data.DataLoader(dsets_val, batch_size=batch_size, shuffle=True, num_workers=4) #batch_size=1??
+        dset_loaders_val = util_data.DataLoader(dsets_val, batch_size=batch_size, shuffle=True, num_workers=4)
 
         # prepare validation feature and predicted label for validation
         iter_val = iter(dset_loaders_val)
         val_input, val_labels = iter_val.next()
+        if use_gpu:
+            val_input, val_labels = Variable(val_input).cuda(), Variable(val_labels).cuda()
+        else:
+            val_input, val_labels = Variable(val_input), Variable(val_labels)
         val_feature, _ = feature_network(val_input)
-        pred_label = predict_network(val_input)[1]
+        _, pred_label = predict_network(val_input)
         w, h = pred_label.shape
         error = np.zeros(1)
         error[0] = predict_loss(cls, pred_label.reshape(1, w*h)).numpy()
