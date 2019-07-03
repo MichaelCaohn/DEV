@@ -27,7 +27,20 @@ def get_dev_risk(weight, error):
     weighted_error = weight * error  # weight correspond to Ntr/Nts, error correspond to validation error
     cov = np.cov(np.concatenate((weighted_error, weight), axis=1), rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
+    print("Check values inside get_dev_risk")
+    print(weight)
+    print(cov)
+    print(var_w)
+    if var_w == 0:
+        var_w = cov # 1/(2.3* cov) or 1.6
     eta = - cov / var_w
+    result = np.mean(weighted_error) + eta * np.mean(weight) - eta
+    print(weighted_error)
+    print(np.mean(weighted_error))
+    print(eta)
+    print(np.mean(weight))
+    print(result)
+
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
 
 
@@ -48,9 +61,12 @@ def get_weight(source_feature, target_feature,
 
     print('num_source is {}, num_target is {}, ratio is {}\n'.format(N_s, N_t, float(N_s) / N_t))  # check the ratio
 
+    N_s, d = source_feature.shape
     target_feature = target_feature.copy()
     all_feature = np.concatenate((source_feature, target_feature))
     all_label = np.asarray([1] * N_s + [0] * N_t, dtype=np.int32)  # 1->source 0->target
+    # print(all_feature.shape)
+    # print(all_label.shape)
     feature_for_train, feature_for_test, label_for_train, label_for_test = train_test_split(all_feature, all_label,
                                                                                             train_size=0.8)
 
@@ -67,7 +83,7 @@ def get_weight(source_feature, target_feature,
         acc = np.mean((label_for_test == output).astype(np.float32))
         val_acc.append(acc)
         domain_classifiers.append(domain_classifier)
-        print('decay is %s, val acc is %s' % (decay, acc))
+        # print('decay is %s, val acc is %s' % (decay, acc))
 
     index = val_acc.index(max(val_acc))
 
@@ -140,6 +156,7 @@ def get_weight(source_feature, target_feature,
 #     return score
 
 def random_select_src(source_feature, target_feature):
+    # done with debugging
     """
     Select at most 2*Ntr data from source feature randomly
     :param source_feature: shape [N_tr, d], features from training set
@@ -151,12 +168,24 @@ def random_select_src(source_feature, target_feature):
     items = [i for i in range(1, N_s)]
     random_list = random.sample(items, 2 * N_t - 1)
     new_source_feature = source_feature[0].reshape(1, d)
-    for i in range(1, 2 * N_t):
+    # print(N_t) # 9
+    # print(N_s) # 24
+    # print(len(random_list)) # 17
+    # print(random_list) # [11, 23, 8, 21, 16, 2, 14, 12, 22, 3, 18, 13, 10, 20, 1, 7, 19]
+    # print(len(source_feature))# 24
+    for i in range(2 * N_t - 1):
+        # randome_list[i] have list out of range problem
+        # print(i)
+        # print(random_list[i])
         new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i]].reshape(1, d)))
+
+    print("random_select:")
+    print(new_source_feature.shape)
     return new_source_feature
 
 
-def predict_loss(cls, y_pre):  # requires how the loss is calculated for the preduct value and the ground truth value
+def predict_loss(cls, y_pre):
+    # done with debugging works fine
     """
     Calculate the cross entropy loss for prediction of one picture
     :param cls:
@@ -169,33 +198,8 @@ def predict_loss(cls, y_pre):  # requires how the loss is calculated for the pre
     entropy = nn.CrossEntropyLoss()
     return entropy(pre_cls_torch, target)
 
-# def val_split(validation_path):
-#     """
-#     return the validation data and the ground truth value of the validation data
-#     :param validation_path: path to the validation set
-#     :return:
-#     """
-#     validation_list = open(validation_path).readlines()
-#     N = len(validation_path)
-#     ground_truth = np.zeros(shape=(N))
-#     for i in range(N):
-#         ground_truth[i] = int(validation_path[i].split(" ")[1].replace("\n", ""))
-# def get_label(predict_score):
-# #     """
-# #     Return the predicted label by returning the index with highest score in the predict scroe list
-# #     :param predict_score: a list with length C (C is the number of class) containing the possibility score for each class
-# #     :return:
-# #     """
-# #     score = predict_score[0]
-# #     index = 0
-# #     for i in len(1, predict_score):
-# #         if score < predict_score[i]:
-# #             score = predict_score[i]
-# #             index = i
-# #     return index
 
 def get_label_list(target_list, predict_network, resize_size, crop_size, batch_size, use_gpu):
-    # done with debugging, works fine
     """
     Return the target list with pesudolabel
     :param target_list: list conatinging all target file path and a wrong label
@@ -223,7 +227,6 @@ def get_label_list(target_list, predict_network, resize_size, crop_size, batch_s
             label_list.append(target_list[count][:-2])
             label_list[count] = label_list[count] + str(predict_label[num].cpu().numpy()) + "\n"
             count += 1
-    # del dsets_tar, dset_loaders_tar
     return label_list
 
 
@@ -256,7 +259,6 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
     prep_dict = prep.image_train(resize_size=resize_size, crop_size=crop_size)
     # load different class's image
     for cls in range(class_num):
-        # torch.cuda.empty_cache()
         dsets_src = ImageList(src_cls_list[cls], transform=prep_dict)
         dset_loaders_src = util_data.DataLoader(dsets_src, batch_size=batch_size, shuffle=True, num_workers=4)
 
@@ -274,6 +276,7 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         else:
             src_input = Variable(src_input)
         src_feature, _ = feature_network(src_input)
+        src_feature_de = src_feature.detach().cpu().numpy()
         for count_src in range(len(dset_loaders_src) - 1):
             src_input = iter_src.next()[0]
             if use_gpu:
@@ -281,8 +284,8 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
             else:
                 src_input = Variable(src_input)
             src_feature_new, _ = feature_network(src_input)
-            src_feature = torch.cat((src_feature, src_feature_new), 0)
-            # src_feature = np.append(src_feature, src_feature_new, axis=0)
+            src_feature_new_de = src_feature_new.detach().cpu().numpy()
+            src_feature_de = np.append(src_feature_de, src_feature_new_de, axis=0)
 
         # prepare target feature
         iter_tar = iter(dset_loaders_tar)
@@ -292,6 +295,7 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         else:
             tar_input = Variable(tar_input)
         tar_feature, _ = feature_network(tar_input)
+        tar_feature_de = tar_feature.detach().cpu().numpy()
         for count_tar in range(len(dset_loaders_tar) - 1):
             tar_input = iter_tar.next()[0]
             if use_gpu:
@@ -299,8 +303,8 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
             else:
                 tar_input = Variable(tar_input)
             tar_feature_new, _ = feature_network(tar_input)
-            tar_feature = torch.cat((tar_feature, tar_feature_new), 0)
-            # tar_feature = np.append(tar_feature, tar_feature_new, axis=0)
+            tar_feature_new_de = tar_feature_new.detach().cpu().numpy()
+            tar_feature_de = np.append(tar_feature_de, tar_feature_new_de, axis=0)
 
         # prepare validation feature and predicted label for validation
 
@@ -312,7 +316,7 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
             val_input, val_labels = Variable(val_input), Variable(val_labels)
         val_feature, _ = feature_network(val_input)
         _, pred_label = predict_network(val_input)
-
+        val_feature_de = val_feature.detach().cpu().numpy()
 
         w = pred_label[0].shape[0]
         error = np.zeros(1)
@@ -322,7 +326,6 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
         for num_image in range(1, len(pred_label)):
             single_pred_label = pred_label[num_image]
             w = single_pred_label.shape[0]
-
             error = np.append(error, [[predict_loss(cls, single_pred_label.reshape(1, w)).item()]], axis=0)
         for count_val in range(len(dset_loaders_val) - 1):
             val_input, val_labels = iter_val.next()
@@ -331,7 +334,9 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
             else:
                 val_input, val_labels = Variable(val_input), Variable(val_labels)
             val_feature_new, _ = feature_network(val_input)
-            val_feature = torch.cat((val_feature, val_feature_new), 0)
+
+            val_feature_new_de = val_feature_new.detach().cpu().numpy()
+            val_feature_de = np.append(val_feature_de, val_feature_new_de, axis=0)
             _, pred_label = predict_network(val_input)
             for num_image in range(len(pred_label)):
                 single_pred_label = pred_label[num_image]
@@ -340,48 +345,12 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
                 error = np.append(error, [[predict_loss(cls, single_pred_label.reshape(1, w)).item()]], axis=0)
             # error should be a (N, 1) numpy array, the input format required by get_dev_risk
 
-        # error = np.zeros(1)
-        # error[0] = predict_loss(cls, pred_label.reshape(1, w * h)).numpy()
-        # error = error.reshape(1, 1)
-        # for count_val in range(len(val_cls_list[cls]) - 1):
-        #     val_input, val_labels = iter_val.next()
-        #     # val_feature1 = feature_network(val_input)
-        #     val_feature_new, _ = feature_network(val_input)
-        #     val_feature = torch.cat(val_feature, val_feature_new, 0)
-        #     # val_feature = np.append(val_feature, val_feature_new, axis=0)
-        #     _, new_labels = predict_network(val_input)
-        #     w, h = new_labels.shape
-        #     # cls should be a value, new_labels should be a [[x]] tensor format, the input format required by predict_loss
-        #     error = np.append(error, [[predict_loss(cls, new_labels.reshape(1, w*h)).cpu().numpy()]], axis=0)
-        #     # error should be a (N, 1) numpy array, the input format required by get_dev_risk
-
-        # print('The class is {}, the Error for each image is {}\n'.format(cls, error))
-
-        # src_feature, tar_feature, val_feature requires to be numpy
-        # weight, error requires to be numpy
         print(cls)
-        weight = get_weight(src_feature.detach().cpu().numpy(), tar_feature.detach().cpu().numpy(), val_feature.detach().cpu().numpy())
-        cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
-        # del dset_loaders_tar, dset_loaders_val, dset_loaders_src
+        weight = get_weight(src_feature_de, tar_feature_de, val_feature_de)
+        cross_val_loss = cross_val_loss + get_dev_risk(weight, error)/class_num
 
-        cpuStats()
-        # memReport()
-        # torch.cuda.empty_cache()
-
-    return cross_val_loss / class_num
+        print("Error here")
+        print("___________________________")
 
 
-def memReport():
-    for obj in gc.get_objects():
-        if torch.is_tensor(obj):
-            print(type(obj), obj.size())
-
-
-def cpuStats():
-    print(sys.version)
-    print(psutil.cpu_percent())
-    print(psutil.virtual_memory())  # physical memory usage
-    pid = os.getpid()
-    py = psutil.Process(pid)
-    memoryUse = py.memory_info()[0] / 2. ** 30  # memory use in GB...I think
-    print('memory GB:', memoryUse)
+    return cross_val_loss
