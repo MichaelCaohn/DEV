@@ -242,7 +242,7 @@ def train(config):
     best_acc = 0.0
     best_model = 0
     for i in range(config["num_iterations"]):
-        if i % config["test_interval"] == 0:
+        if (i+1) % config["test_interval"] == 0:
             base_network.train(False)
             temp_acc = image_classification_test(dset_loaders, \
                 base_network, test_10crop=prep_config["test_10crop"], \
@@ -255,7 +255,7 @@ def train(config):
             config["out_file"].write(log_str)
             config["out_file"].flush()
             print(log_str)
-        if i % config["snapshot_interval"] == 0:
+        if (i+1) % config["snapshot_interval"] == 0:
             torch.save(nn.Sequential(base_network), osp.join(config["output_path"], \
                 "iter_{:05d}_model.pth.tar".format(i)))
 
@@ -415,7 +415,7 @@ if __name__ == "__main__":
         if "amazon" in config["data"]["test"]["list_path"]:
             config["optimizer"]["lr_param"]["init_lr"] = 0.0003
         else:
-            config["optimizer"]["lr_param"]["init_lr"] = 0.001
+            config["optimizer"]["lr_param"]["init_lr"] = 0.1
         config["loss"]["update_iter"] = 500
         config["network"]["params"]["class_num"] = 31
     elif config["dataset"] == "office-home":
