@@ -27,19 +27,21 @@ def get_dev_risk(weight, error):
     weighted_error = weight * error  # weight correspond to Ntr/Nts, error correspond to validation error
     cov = np.cov(np.concatenate((weighted_error, weight), axis=1), rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
-    print("Check values inside get_dev_risk")
-    print(weight)
-    print(cov)
-    print(var_w)
+    # print("Check values inside get_dev_risk")
+    # print("Weight: \n{}".format(weight))
+    # print("cov: \n{}".format(cov))
+    # print("var_w: \n{}".format(var_w))
+    if cov == 0 and var_w == 0:
+        cov = var_w = 0.00001
     if var_w == 0:
         var_w = cov # 1/(2.3* cov) or 1.6
     eta = - cov / var_w
-    result = np.mean(weighted_error) + eta * np.mean(weight) - eta
-    print(weighted_error)
-    print(np.mean(weighted_error))
-    print(eta)
-    print(np.mean(weight))
-    print(result)
+    # result = np.mean(weighted_error) + eta * np.mean(weight) - eta
+    # print("Weighted_error: \n{}".format(weighted_error))
+    # print("np.mean(weighted error) : \n{}".format(np.mean(weighted_error)))
+    # print("eta: \n{}".format(eta))
+    # print("np.mean(weight): \n{}".format(np.mean(weight)))
+    # print("Result: \n{}".format(result))
 
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
 
@@ -87,8 +89,8 @@ def get_weight(source_feature, target_feature,
 
     index = val_acc.index(max(val_acc))
 
-    print('val acc is')
-    print(val_acc)
+    # print('val acc is')
+    # print(val_acc)
 
     domain_classifier = domain_classifiers[index]
 
@@ -211,7 +213,7 @@ def get_label_list(target_list, predict_network, resize_size, crop_size, batch_s
     """
     label_list = []
     dsets_tar = ImageList(target_list, transform=prep.image_train(resize_size=resize_size, crop_size=crop_size))
-    dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=True, num_workers=4)
+    dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=False, num_workers=4)
     len_train_target = len(dset_loaders_tar)
     iter_target = iter(dset_loaders_tar)
     count = 0
@@ -224,7 +226,11 @@ def get_label_list(target_list, predict_network, resize_size, crop_size, batch_s
         _, predict_score = predict_network(input_tar)
         _, predict_label = torch.max(predict_score, 1)
         for num in range(len(predict_label.cpu())):
-            label_list.append(target_list[count][:-2])
+            if target_list[count][-3] == ' ':
+                ind = -2
+            else:
+                ind = -3
+            label_list.append(target_list[count][:ind])
             label_list[count] = label_list[count] + str(predict_label[num].cpu().numpy()) + "\n"
             count += 1
     return label_list
@@ -345,12 +351,9 @@ def cross_validation_loss(feature_network, predict_network, src_cls_list, target
                 error = np.append(error, [[predict_loss(cls, single_pred_label.reshape(1, w)).item()]], axis=0)
             # error should be a (N, 1) numpy array, the input format required by get_dev_risk
 
-        print(cls)
+        # print(cls)
         weight = get_weight(src_feature_de, tar_feature_de, val_feature_de)
         cross_val_loss = cross_val_loss + get_dev_risk(weight, error)/class_num
-
-        print("Error here")
-        print("___________________________")
 
 
     return cross_val_loss
