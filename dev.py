@@ -27,21 +27,11 @@ def get_dev_risk(weight, error):
     weighted_error = weight * error  # weight correspond to Ntr/Nts, error correspond to validation error
     cov = np.cov(np.concatenate((weighted_error, weight), axis=1), rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
-    # print("Check values inside get_dev_risk")
-    # print("Weight: \n{}".format(weight))
-    # print("cov: \n{}".format(cov))
-    # print("var_w: \n{}".format(var_w))
     if cov == 0 and var_w == 0:
         cov = var_w = 0.00001
     if var_w == 0:
         var_w = cov # 1/(2.3* cov) or 1.6
     eta = - cov / var_w
-    # result = np.mean(weighted_error) + eta * np.mean(weight) - eta
-    # print("Weighted_error: \n{}".format(weighted_error))
-    # print("np.mean(weighted error) : \n{}".format(np.mean(weighted_error)))
-    # print("eta: \n{}".format(eta))
-    # print("np.mean(weight): \n{}".format(np.mean(weight)))
-    # print("Result: \n{}".format(result))
 
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
 
@@ -99,63 +89,6 @@ def get_weight(source_feature, target_feature,
 
     # correspond to (Ntr/Nts)*(1-M(fv))/M(fv), M(fv) just indicate whether 0 or 1, meaning from source or target
 
-
-# added function
-
-# def load_cls_data(source_path, target_path, class_num, resize_size, crop_size, batch_size):
-#     """
-#     :param source_path: path to source data loader file (training)
-#     :param target_path: path to target data loader file (testing)
-#     :param class_num: number of classes in the dataset
-#     :param resize_size: resize size of the image
-#     :param crop_size: crop size of the image
-#     :param batch_size: bath size for dataloader
-#     :param train_val_split:
-#     :return:
-#     """
-#     source_list = open(source_path).readlines()
-#     target_list = open(target_path).readlines()
-#     src_cls_list = []
-#     tar_cls_list = []
-#     train_list = []
-#     test_list = []
-#     # seperate the class
-#     for i in range(class_num):
-#         src_cls_list.append([j for j in source_list if int(j.split(" ")[1].replace("\n", "")) == i])
-#         tar_cls_list.append([j for j in target_list if int(j.split(" ")[1].replace("\n", "")) == i])
-#     prep_dict_source = prep_dict_target = prep.image_train(resize_size=resize_size, crop_size=crop_size)
-#     # load different class's image
-#     for i in range(class_num):
-#         dsets_src = ImageList(src_cls_list[i], transform=prep_dict_source)
-#         dset_loaders_src = util_data.DataLoader(dsets_src, batch_size=batch_size, shuffle=True, num_workers=4)
-#         dsets_tar = ImageList(tar_cls_list[i], transform=prep_dict_target)
-#         dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=True, num_workers=4)
-#         iter_src = iter(dset_loaders_src)
-#         iter_tar = iter(dset_loaders_tar)
-#         train_list.append(iter_src)
-#         test_list.append(iter_tar)
-#     return train_list, test_list
-
-# def new_get_dev_risk(weight, error, class_num): #这里建议weight和error按照class的顺序来排好处理一些
-#     """
-#     :param weight: shape [N, 1], the importance weight for N source samples in the validation set
-#     :param error: shape [N, 1], the error value for each source sample in the validation set
-#     (typically 0 for correct classification and 1 for wrong classification)
-#     :param class_num: number of classes in the data set
-#     :return:
-#     """
-#     score = 0
-#     for i in range(class_num):
-#         #建议此处加入weight[i]=,error[i]=
-#         N, d = weight[i].shape #要选取weight中class为i的weight。
-#         _N, _d = error[i].shape #要选取error中class为i的weight。
-#         assert N == _N and d == _d, 'dimension mismatch!'
-#         weighted_error = weight[i] * error[i] # 原先的注释有错误。weight应该是来自get_weight，error应该是validation data分类的错误
-#         cov = np.cov(np.concatenate((weighted_error, weight[i]), axis=1),rowvar=False)[0][1]
-#         var_w = np.var(weight[i], ddof=1)
-#         eta = - cov / var_w
-#         score += np.mean(weighted_error) + eta * np.mean(weight[i]) - eta
-#     return score
 
 def random_select_src(source_feature, target_feature):
     # done with debugging

@@ -19,7 +19,6 @@ import seperate_data
 from basenet import *
 import mlp_network
 
-
 def get_dev_risk(weight, error):
     """
     :param weight: shape [N, 1], the importance weight for N source samples in the validation set
@@ -29,8 +28,8 @@ def get_dev_risk(weight, error):
     N, d = weight.shape
     _N, _d = error.shape
     assert N == _N and d == _d, 'dimension mismatch!'
-    weighted_error = weight * error  # weight correspond to Ntr/Nts, error correspond to validation error
-    cov = np.cov(np.concatenate((weighted_error, weight), axis=1), rowvar=False)[0][1]
+    weighted_error = weight * error # weight correspond to Ntr/Nts, error correspond to validation error
+    cov = np.cov(np.concatenate((weighted_error, weight), axis=1),rowvar=False)[0][1]
     var_w = np.var(weight, ddof=1)
     if cov == 0 and var_w == 0:
         cov = var_w = 0.00001
@@ -38,9 +37,7 @@ def get_dev_risk(weight, error):
     print(eta)
     return np.mean(weighted_error) + eta * np.mean(weight) - eta
 
-
-def get_weight(source_feature_path, target_feature_path,
-               validation_feature_path):  # 这三个feature根据类别不同，是不一样的. source与target这里需注意一下数据量threshold 2倍的事儿
+def get_weight(source_feature_path, target_feature_path, validation_feature_path): # 这三个feature根据类别不同，是不一样的. source与target这里需注意一下数据量threshold 2倍的事儿
     """
     :param source_feature: shape [N_tr, d], features from training set
     :param target_feature: shape [N_te, d], features from test set
@@ -56,10 +53,10 @@ def get_weight(source_feature_path, target_feature_path,
 
     N_s, d = source_feature.shape
     N_t, _d = target_feature.shape
-    if float(N_s) / N_t > 2:
-        source_feature = random_select_src(source_feature, target_feature)
-    else:
-        source_feature = source_feature.copy()
+    # if float(N_s) / N_t > 2:
+    #     source_feature = random_select_src(source_feature, target_feature)
+    # else:
+    #     source_feature = source_feature.copy()
 
     print('num_source is {}, num_target is {}, ratio is {}\n'.format(N_s, N_t, float(N_s) / N_t))  # check the ratio
 
@@ -83,31 +80,47 @@ def get_weight(source_feature_path, target_feature_path,
     loss_function = nn.CrossEntropyLoss()
 
     # convert all numpy to variables
-    feature_for_train = Variable(torch.from_numpy(feature_for_train_np)).cuda()
-    feature_for_test = Variable(torch.from_numpy(feature_for_test_np)).cuda()
-    label_for_train = Variable(torch.from_numpy(label_for_train_np).long()).cuda()
-    label_for_test = Variable(torch.from_numpy(label_for_test_np).long()).cuda()
+    feature_train_list = np.array_split(feature_for_train_np, 13, axis=0)
+    feature_test_list = np.array_split(feature_for_test_np, 13, axis=0)
+    label_train_list = np.array_split(label_for_train_np, 13, axis=0)
+    label_test_list = np.array_split(label_for_test_np, 13, axis=0)
+
     validation_feature = Variable(torch.from_numpy(validation_feature_np)).cuda()
     print("start training")
     for decay in decays:
         print("Decay: {}".format(decay))
-        for ep in range(1, 1001):
+        part_count = 0
+        for ep in range(1, 2001):
+            if part_count == 13:
+                part_count = 0
+            feature_for_train = Variable(torch.from_numpy(feature_train_list[part_count])).cuda()
+            label_for_train = Variable(torch.from_numpy(label_train_list[part_count]).long()).cuda()
+
             optimizer = torch.optim.Adam(MLP.parameters(), lr=0.001, weight_decay=decay)
             pred = MLP(feature_for_train)
             loss = loss_function(pred, label_for_train)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            part_count = part_count + 1
             # check training accuracy
             if ep % 100 == 0:
                 print("Check for testing set accuracy")
-                pred_test = MLP(feature_for_test)
-                predicted_test = torch.max(F.softmax(pred_test), dim=1)[1]
-                pred_y = predicted_test.detach().cpu().numpy().squeeze()
-                label_y = label_for_test.detach().cpu().numpy()
-                accuracy = sum(pred_y == label_y) / label_y.size
+                correct = 0
+                for i in range(13):
+                    feature_for_test = Variable(torch.from_numpy(feature_test_list[i])).cuda()
+                    label_for_test = Variable(torch.from_numpy(label_test_list[i]).long()).cuda()
+                    pred_test = MLP(feature_for_test)
+                    predicted_test = torch.max(F.softmax(pred_test), dim=1)[1]
+                    pred_y = predicted_test.detach().cpu().numpy().squeeze()
+                    label_y = label_for_test.detach().cpu().numpy()
+                    correct += sum(pred_y == label_y)
+                accuracy = correct / label_for_test_np.size
                 print("Accuracy is {}".format(accuracy))
-        pre_path = "MLP" + str(accuracy)
+        if not os.path.exists(source_feature_path.split("/")[0] + "/MLP_weight/"):
+            os.makedirs(source_feature_path.split("/")[0] + "/MLP_weight/")
+        pre_path = source_feature_path.split("/")[0] + "/MLP_weight/"+"MLP" + str(accuracy)
         path = pre_path.replace(".", "_") + ".pth"
         torch.save(MLP, path)
         domain_classifiers.append(path)
@@ -123,8 +136,27 @@ def get_weight(source_feature_path, target_feature_path,
     print("Domain out: {}".format(domain_out))
     return domain_out[:, :1] / domain_out[:, 1:] * N_s * 1.0 / N_t  # (Ntr/Nts)*(1-M(fv))/M(fv)
 
+def random_select_src(source_feature, target_feature):
+    # done with debugging
+    """
+    Select at most 2*Ntr data from source feature randomly
+    :param source_feature: shape [N_tr, d], features from training set
+    :param target_feature: shape [N_te, d], features from test set
+    :return:
+    """
+    N_s, d = source_feature.shape
+    N_t, _d = target_feature.shape
+    items = [i for i in range(1, N_s)]
+    random_list = random.sample(items, 2 * N_t - 1)
+    new_source_feature = source_feature[0].reshape(1, d)
+    for i in range(2 * N_t - 1):
+        new_source_feature = np.concatenate((new_source_feature, source_feature[random_list[i]].reshape(1, d)))
 
-def predict_loss(cls, y_pre):  # requires how the loss is calculated for the preduct value and the ground truth value
+    print("random_select:")
+    print(new_source_feature.shape)
+    return new_source_feature
+
+def predict_loss(cls, y_pre): #requires how the loss is calculated for the preduct value and the ground truth value
     """
     Calculate the cross entropy loss for prediction of one picture
     :param y:
@@ -137,8 +169,7 @@ def predict_loss(cls, y_pre):  # requires how the loss is calculated for the pre
     # target = cls
     entropy = nn.CrossEntropyLoss()
     print(cls)
-    return entropy(pre_cls_torch, target)
-
+    return entropy(pre_cls_torch, target).detach().cpu()
 
 def get_label_list(target_list, predict_network_name, resize_size, crop_size, batch_size, use_gpu):
     # done with debugging, works fine
@@ -156,6 +187,7 @@ def get_label_list(target_list, predict_network_name, resize_size, crop_size, ba
     predict_network = net_config["name"](**net_config["params"])
     if use_gpu:
         predict_network = predict_network.cuda()
+
 
     dsets_tar = ImageList(target_list, transform=prep.image_train(resize_size=resize_size, crop_size=crop_size))
     dset_loaders_tar = util_data.DataLoader(dsets_tar, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -176,9 +208,7 @@ def get_label_list(target_list, predict_network_name, resize_size, crop_size, ba
             count += 1
     return label_list
 
-
-def cross_validation_loss(args, feature_network_path, predict_network_path, num_layer, src_list, target_path, val_list,
-                          class_num,
+def cross_validation_loss(args, feature_network_path, predict_network_path, num_layer, src_list, target_path, val_list, class_num,
                           resize_size, crop_size, batch_size, use_gpu):
     """
     Main function for computing the CV loss
@@ -236,7 +266,7 @@ def cross_validation_loss(args, feature_network_path, predict_network_path, num_
         src_feature_new = G(src_input)
         src_feature_new_de = src_feature_new.detach().cpu().numpy()
         src_feature_de = np.append(src_feature_de, src_feature_new_de, axis=0)
-    print("Pass Source")
+    print("Created Source feature: {}".format(src_feature_de.shape))
 
     # prepare target feature
 
@@ -259,7 +289,7 @@ def cross_validation_loss(args, feature_network_path, predict_network_path, num_
         tar_feature_new = G(tar_input)
         tar_feature_new_de = tar_feature_new.detach().cpu().numpy()
         tar_feature_de = np.append(tar_feature_de, tar_feature_new_de, axis=0)
-    print("Pass Target")
+    print("Created Target feature: {}".format(tar_feature_de.shape))
 
     # prepare validation feature
 
@@ -277,17 +307,17 @@ def cross_validation_loss(args, feature_network_path, predict_network_path, num_
     w = pred_label[0].shape[0]
     error = np.zeros(1)
     error[0] = predict_loss(val_labels[0].item(), pred_label[0].reshape(1, w)).item()
-    error = error.reshape(1, 1)
+    error = error.reshape(1,1)
     print("Before the final")
     print(pred_label.shape)
-    print(len(val_feature_de))
+
     for num_image in range(1, len(pred_label)):
         new_error = np.zeros(1)
         single_pred_label = pred_label[num_image]
         w = single_pred_label.shape[0]
         single_val_label = val_labels[num_image]
         new_error[0] = predict_loss(single_val_label.item(), single_pred_label.reshape(1, w)).item()
-        new_error = new_error.reshape(1, 1)
+        new_error = new_error.reshape(1,1)
         error = np.append(error, new_error, axis=0)
     for _ in range(len(dset_loaders_val) - 1):
         val_input, val_labels = iter_val.next()
@@ -308,17 +338,20 @@ def cross_validation_loss(args, feature_network_path, predict_network_path, num_
             new_error = new_error.reshape(1, 1)
             error = np.append(error, new_error, axis=0)
 
-    print("Pass validation")
+    print("Created Validation error shape: {}".format(error.shape))
+    print("Created Validation feature: {}".format(val_feature_de.shape))
+
     if not os.path.exists(args.save.split("/")[0] + "/feature_np/"):
         os.makedirs(args.save.split("/")[0] + "/feature_np/")
 
-    np.save(args.save.split("/")[0] + "/feature_np/" + "_" + "src_feature_de.npy", src_feature_de)
-    np.save(args.save.split("/")[0] + "/feature_np/" + "_" + "tar_feature_de.npy", tar_feature_de)
-    np.save(args.save.split("/")[0] + "/feature_np/" + "_" + "val_feature_de.npy", val_feature_de)
+    np.save(args.save.split("/")[0] + "/feature_np/" + "src_feature_de.npy", src_feature_de)
+    np.save(args.save.split("/")[0] + "/feature_np/" + "tar_feature_de.npy", tar_feature_de)
+    np.save(args.save.split("/")[0] + "/feature_np/" + "val_feature_de.npy", val_feature_de)
     src_feature_path = args.save.split("/")[0] + "/feature_np/" + "_" + "src_feature_de.npy"
     tar_feature_path = args.save.split("/")[0] + "/feature_np/" + "_" + "tar_feature_de.npy"
     val_feature_path = args.save.split("/")[0] + "/feature_np/" + "_" + "val_feature_de.npy"
     weight = get_weight(src_feature_path, tar_feature_path, val_feature_path)
     cross_val_loss = cross_val_loss + get_dev_risk(weight, error)
+
 
     return cross_val_loss
